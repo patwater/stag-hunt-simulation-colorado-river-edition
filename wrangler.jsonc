@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "stag-hunt-simulation-colorado-river-edition",
+  "compatibility_date": "2026-05-21",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "Kyle's card game"
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
