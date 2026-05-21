@@ -6,3 +6,9 @@ dist/
 # Subfolder build artifacts
 Kyle's card game/node_modules/
 Kyle's card game/dist/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
