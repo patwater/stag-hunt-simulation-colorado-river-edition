@@ -1,0 +1,10 @@
+name = "kyles-card-game"
+pages_build_output_dir = "dist"
+compatibility_date = "2025-05-16"
+
+# Cloudflare Pages build configuration
+# Dashboard settings should match:
+#   Root directory:        Kyle's card game
+#   Build command:         npm install && npm run build
+#   Build output dir:      dist
+#   Node.js version:       20 (set via .node-version)

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+.env.local
+
+# Subfolder build artifacts
+Kyle's card game/node_modules/
+Kyle's card game/dist/
