@@ -22,10 +22,11 @@ export type ShortageTier = 0 | 1 | 2 | 3;
 export type DefectionType = 'none' | 'overdraw' | 'refuse_cut' | 'litigation';
 
 export type EffectType =
-  | 'demand_reduction_temporary'
-  | 'demand_reduction_permanent'
-  | 'supply_increase'
-  | 'water_lease';
+  | 'demand_reduction_temporary'   // reduces owner's diversion need for N years
+  | 'demand_reduction_permanent'   // reduces owner's diversion need forever
+  | 'supply_increase'              // adds to effective flow forever
+  | 'water_lease'                  // transfers water from Tribal to a lessee for N years
+  | 'quantification';              // Tribal rights quantification (scores, no water effect)
 
 // ─── Static data shapes ────────────────────────────────────────────────────
 
@@ -44,12 +45,13 @@ export interface AlternativeOption {
   name: string;
   description: string;
   cost: number;              // $M — TUNING
-  leadTurns: number;         // turns until active — TUNING
+  pcCost: number;            // political capital cost — TUNING
+  leadTurns: number;         // resolutions until active — TUNING
   effectType: EffectType;
   effectMagnitude: number;   // MAF — TUNING
-  effectDuration: number;    // turns; 0 = permanent — TUNING
+  effectDuration: number;    // active years once complete; 0 = permanent — TUNING
   eligiblePlayers: PlayerId[];
-  requiresFederalFunding: boolean;
+  requiresFederalFunding: boolean; // too expensive without a federal grant
 }
 
 export interface PlayerRole {
@@ -58,11 +60,11 @@ export interface PlayerRole {
   abbreviation: string;
   description: string;
   legalBasis: string[];
-  baseDiversion: number;           // baseline annual draw MAF — TUNING
-  maxDiversion: number;            // legal ceiling MAF — TUNING
-  startingBudget: number;          // $M — TUNING
+  baseDiversion: number;            // baseline annual draw MAF — TUNING
+  maxDiversion: number;             // legal ceiling MAF — TUNING
+  startingBudget: number;           // $M — TUNING
   startingPoliticalCapital: number; // — TUNING
-  color: string;                   // hex for UI accent
+  color: string;
   powers: string[];
   constraints: string[];
 }
@@ -70,8 +72,7 @@ export interface PlayerRole {
 export interface ObjectiveCriteria {
   id: string;
   description: string;
-  maxPoints: number;               // — TUNING
-  checkType: string;
+  maxPoints: number; // — TUNING
 }
 
 export interface PrivateObjective {
@@ -85,15 +86,14 @@ export interface PrivateObjective {
 
 export interface PlayerState {
   id: PlayerId;
-  publicScore: number;
+  publicScore: number;          // accumulated water-delivery points
+  privateScore: number;         // filled in at game end
   politicalCapital: number;
   budget: number;
   totalDiversionThisGame: number;
-  yearlyWaterDelivered: number[];
-  demandReduction: number;         // MAF reduction from completed alternatives
-  litigationDelay: number;         // turns remaining blocked by litigation
+  litigationBlock: number;      // years remaining unable to defect/invest
+  wasSued: boolean;             // ever targeted by litigation
   hasCommittedThisYear: boolean;
-  activeAlternativeIds: string[];
 }
 
 export interface PlayerCommitment {
@@ -102,20 +102,19 @@ export interface PlayerCommitment {
   defectionType: DefectionType;
   litigationTarget: PlayerId | null;
   alternativeOptionId: string | null;
-  federalFundingTargetId: PlayerId | null; // Bureau only: who gets funded
+  leaseTargetId: PlayerId | null;   // tribal leasing: who receives the water
 }
 
 export interface ActiveAlternative {
   id: string;
   optionId: string;
-  playerId: PlayerId;
-  fundedBy: PlayerId;
-  turnsRemaining: number;
+  playerId: PlayerId;               // owner / initiator
+  leaseTargetId: PlayerId | null;   // water_lease only
+  federallyFunded: boolean;
+  startYear: number;
+  turnsRemaining: number;           // build countdown; 0 = complete
   status: 'in_progress' | 'completed';
-  effectType: EffectType;
-  effectMagnitude: number;
-  effectDuration: number;
-  effectTurnsLeft: number; // for temporary effects
+  effectTurnsLeft: number;          // remaining active years for temporary effects; 999 ≈ permanent
 }
 
 export interface Agreement {
@@ -126,15 +125,6 @@ export interface Agreement {
   isBinding: boolean;
 }
 
-export interface LitigationCase {
-  id: string;
-  filer: PlayerId;
-  target: PlayerId;
-  year: number;
-  turnsRemaining: number;          // TUNING
-  description: string;
-}
-
 export interface PlayerYearResult {
   playerId: PlayerId;
   intendedDiversion: number;
@@ -143,7 +133,7 @@ export interface PlayerYearResult {
   defectionType: DefectionType;
   waterScore: number;
   politicalCapitalChange: number;
-  budgetSpent: number;
+  budgetChange: number;
   notes: string[];
 }
 
@@ -156,14 +146,13 @@ export interface YearResult {
   evaporation: number;
   reservoirChange: number;
   reservoirLevelAfter: number;
-  shortageTierAfter: ShortageTier;
+  shortageTierDeclared: ShortageTier;
   playerResults: PlayerYearResult[];
 }
 
 export interface LogEntry {
   id: string;
   year: number;
-  phase: GamePhase;
   type: 'info' | 'agreement' | 'defection' | 'litigation' | 'resolution' | 'alternative' | 'shortage';
   text: string;
 }
@@ -178,36 +167,33 @@ export interface GameState {
 
   reservoirLevel: number;          // MAF
   reservoirHistory: Array<{ year: number; level: number }>;
-  supplyBonus: number;             // MAF from completed supply-increase alternatives
+  supplyBonus: number;             // MAF from completed supply alternatives
+  climateDrift: number;            // cumulative negative flow modifier
 
   currentFlowCard: HydrologyCard | null;
-  shortageTier: ShortageTier;
-  climateDrift: number;            // cumulative negative modifier, grows each year
+  shortageTier: ShortageTier;      // tier in force (declared this year)
 
   players: PlayerState[];
 
-  // Commitment sub-phase
-  commitmentPlayerIndex: number;   // 0–5
+  commitmentPlayerIndex: number;
   commitments: Partial<Record<PlayerId, PlayerCommitment>>;
 
-  // Federal phase inputs
   bureauDeclaredTier: ShortageTier;
   bureauFundingTargetId: PlayerId | null;
   bureauFundingOptionId: string | null;
+  federalFunding: number;          // $M remaining
 
-  bindingAgreements: Agreement[];
-  negotiationNote: string;
-
+  agreements: Agreement[];
   activeAlternatives: ActiveAlternative[];
-  activeLitigation: LitigationCase[];
-  federalFunding: number;          // Bureau's remaining budget $M
 
   gameLog: LogEntry[];
   yearHistory: YearResult[];
 
+  deadPool: boolean;
+  coordinationBonusEarned: boolean;
+
   showTutorial: boolean;
   tutorialStep: number;
 
-  hydrologyDeckIds: string[];      // remaining card IDs (shuffled)
-  usedCardIds: string[];
+  hydrologyDeckIds: string[];
 }
