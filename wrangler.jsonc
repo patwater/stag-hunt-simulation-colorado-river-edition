@@ -5,8 +5,12 @@
   "observability": {
     "enabled": true
   },
+  // Serve the built app, not raw source. Workers Builds settings:
+  //   Build command:  cd kyles-card-game && npm install && npm run build
+  //   Deploy command: npx wrangler deploy
   "assets": {
-    "directory": "Kyle's card game"
+    "directory": "kyles-card-game/dist",
+    "not_found_handling": "single-page-application"
   },
   "compatibility_flags": [
     "nodejs_compat"
