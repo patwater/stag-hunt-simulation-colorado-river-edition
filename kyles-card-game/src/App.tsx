@@ -23,14 +23,13 @@ function PhasePanel() {
 }
 
 export default function App() {
-  const { phase, phaseTimerActive, tickTimer } = useGameStore();
+  const phase = useGameStore(s => s.phase);
+  const phaseTimerActive = useGameStore(s => s.phaseTimerActive);
+  const tickTimer = useGameStore(s => s.tickTimer);
 
-  // Global 1-second tick for phase timers
   useEffect(() => {
     if (!phaseTimerActive) return;
-    const interval = setInterval(() => {
-      tickTimer();
-    }, 1000);
+    const interval = setInterval(tickTimer, 1000);
     return () => clearInterval(interval);
   }, [phaseTimerActive, tickTimer]);
 
@@ -38,24 +37,18 @@ export default function App() {
   if (phase === 'game_over') return <GameOverScreen />;
 
   return (
-    <div
-      className="min-h-screen flex flex-col lg:flex-row gap-0"
-      style={{ backgroundColor: '#1c1208' }}
-    >
-      {/* Left: Shared dashboard (always visible) */}
+    <div className="min-h-screen flex flex-col lg:flex-row" style={{ backgroundColor: '#1c1208' }}>
       <div
-        className="lg:w-80 xl:w-96 shrink-0 border-r p-3 overflow-y-auto"
-        style={{ borderColor: '#3a2a10', backgroundColor: '#1c1208', minHeight: '100vh' }}
+        className="lg:w-80 xl:w-96 shrink-0 border-r p-3 lg:h-screen lg:overflow-y-auto"
+        style={{ borderColor: '#3a2a10' }}
       >
         <Dashboard />
       </div>
-
-      {/* Right: Current phase panel */}
-      <div className="flex-1 p-4 overflow-y-auto" style={{ minHeight: '100vh' }}>
-        <PhasePanel />
+      <div className="flex-1 p-4 lg:h-screen lg:overflow-y-auto">
+        <div className="max-w-3xl mx-auto pb-12">
+          <PhasePanel />
+        </div>
       </div>
-
-      {/* Tutorial overlay */}
       <TutorialOverlay />
     </div>
   );

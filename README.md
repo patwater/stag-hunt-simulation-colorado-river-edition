@@ -2,14 +2,37 @@
 
 A web-based, single-device, 6-player hot-seat board game simulating Colorado River water allocation as a game-theory exercise. Total playtime: ~2 hours (10 water years × ~10 min/year).
 
+**The app lives in [`kyles-card-game/`](kyles-card-game/).**
+
 ## Quick Start
 
 ```bash
+cd kyles-card-game
 npm install
 npm run dev
 ```
 
-Open on a tablet (landscape) and pass around the table. No backend, no networking, no auth. State is persisted to localStorage so a paused game survives a page refresh.
+Open on a tablet (landscape) and pass around the table. No backend, no networking, no auth. State persists to localStorage, so a paused game survives a refresh.
+
+## Deploy to Cloudflare Pages
+
+**Git integration** (dashboard → Workers & Pages → Create → Pages → connect this repo):
+
+| Setting | Value |
+|---|---|
+| Root directory | `kyles-card-game` |
+| Build command | `npm install && npm run build` |
+| Build output directory | `dist` |
+
+**Direct upload** (from your machine):
+
+```bash
+cd kyles-card-game
+npm run build
+npx wrangler pages deploy dist --project-name kyles-card-game
+```
+
+`public/_redirects` handles SPA routing; `public/_headers` sets cache and security headers. Both are copied into `dist/` automatically by Vite.
 
 ---
 
@@ -30,190 +53,112 @@ The 1922 Colorado River Compact allocated ~18.5 MAF/year to seven states plus Me
 | 5 | Mexico | 1.5 MAF/yr | $150M |
 | 6 | Tribal Coalition | 2.0 MAF/yr | $100M |
 
-### Turn Structure (10 turns, ~10 min each)
+### Turn Structure (10 turns)
 
-1. **Hydrology Draw (1 min)** — Draw a flow card. Reveals actual natural flow this year.
-2. **Federal Phase (2 min)** — Bureau declares shortage tier (0–3) and optionally allocates federal funding to an alternative investment.
-3. **Negotiation (4 min)** — Open verbal negotiation. Players can log binding agreements digitally.
-4. **Commitment (per-player)** — Device passed to each player privately. They commit: diversion amount, defection choice, alternative investment. Choices hidden until reveal.
-5. **Resolution (1 min)** — Reveal all commitments simultaneously. Calculate reservoir change. Score the year.
+1. **Hydrology Draw (1 min)** — Draw a flow card revealing actual natural flow.
+2. **Federal Phase (2 min)** — Bureau declares shortage tier (0–3, floored by reservoir level) and may offer one federal grant covering 50% of an investment.
+3. **Negotiation (4 min)** — Open verbal negotiation; log binding agreements digitally.
+4. **Commitment (untimed)** — Device passes to each player privately: diversion amount, defection choice, optional investment. Hidden until reveal.
+5. **Resolution (1.5 min)** — Reveal all commitments, update the reservoir, score the year.
+
+Timed phases auto-advance; if the hydrology timer expires undrawn, the card auto-draws.
 
 ### Reservoir Math
 
 ```
 Δreservoir = effectiveFlow − totalDiversions − evaporation
+effectiveFlow = cardFlow + climateDrift (−0.1/yr cumulative) + completed supply projects
+evaporation ≈ 4% of current storage
 ```
 
-- Combined Mead + Powell capacity: 52 MAF
-- Starting level: 26 MAF (50%)
-- Dead pool threshold: 4.16 MAF (8%) → **Game over, no one wins**
-- Shortage tiers activate at 40% / 30% / 20%
+- Combined Mead + Powell capacity: 52 MAF; start: 26 MAF (50%)
+- Dead pool: 4.16 MAF (8%) → **game over, no one wins**
+- Shortage tiers floor at 40% / 30% / 20%
 
 ### Defection Moves
 
 | Move | Effect | Cost |
 |------|--------|------|
-| Overdraw | +20% water | −2 political capital |
-| Refuse cut | Ignore tier cut | −2 PC, litigation risk |
-| Litigation | Block target 2 turns | −3 PC (filer), −1 PC (target) |
+| Overdraw | Take +20% over your commitment | −2 PC |
+| Refuse cut | Ignore your mandatory tier cut | −2 PC |
+| Litigation | Target can't defect or invest for 2 years | −3 PC (filer), −1 PC (target) |
 
-### Alternative Investments
+Players under litigation cannot defect or start investments until the freeze expires.
 
-| Alternative | Cost | Lead Time | Effect |
-|-------------|------|-----------|--------|
-| Ag Fallowing | $150M | 1 turn | −0.5 MAF demand (2 turns) |
-| Conservation | $80M | 2 turns | −0.1 MAF demand (permanent) |
-| Desalination | $500M (needs Bureau) | 3 turns | +0.2 MAF supply (permanent) |
-| Recycled Water | $120M | 2 turns | −0.15 MAF demand (permanent) |
-| Tribal Water Lease | 3 PC | 1 turn | Lease 0.5 MAF/yr for 3 turns |
+### Investments
+
+| Investment | Cost | Lead | Effect |
+|-----------|------|------|--------|
+| Ag Fallowing | $150M | 1 yr | −0.5 MAF demand for 2 yrs |
+| Conservation | $80M | 2 yrs | −0.1 MAF demand, permanent |
+| Desalination | $500M (needs grant) | 3 yrs | +0.2 MAF supply, permanent |
+| Recycled Water | $120M | 2 yrs | −0.15 MAF demand, permanent |
+| Tribal Water Lease | 3 PC | 1 yr | 0.5 MAF to lessee for 3 yrs; lessee pays Tribes $30M/yr |
+| Rights Quantification | $50M + 2 PC (Tribes) | 3 yrs | Major private-objective bonus |
+
+Demand-reduction investments count toward your delivery score — you score full delivery while taking less water. That's what makes cooperation affordable.
 
 ### Win Condition
 
-- **Dead pool** → No one wins.
-- **Otherwise** → Highest combined public + private score wins.
-- **Coordination bonus** → If reservoir stays above 30% (15.6 MAF) for all 10 years, every player gets **+60 points**. This bonus is calibrated to make sustained cooperation the dominant long-run strategy.
+- **Dead pool** → no one wins; all scores nullified.
+- **Otherwise** → highest public + private score wins.
+- **Coordination bonus** → reservoir ≥ 30% every year of a completed game = **+60 points for every player**. Tuned so sustained cooperation beats defection in expectation.
 
 ---
 
-## Reservoir Math (Detailed)
+## Verified Playability
 
-### Structural gap
+`kyles-card-game/scripts/playthrough.mjs` drives the real UI through a complete game in headless Chromium:
 
-Total legal allocations: ~18.5 MAF/yr  
-Recent average flow: ~12.5 MAF/yr  
-Gap: ~6 MAF/yr — this is the pedagogical core.
-
-At full baseline diversions and average flow:
+```bash
+cd kyles-card-game
+npm run build && npx vite preview --port 4173 &   # serve the build
+npm run test:playthrough                            # cooperative: survives 10 years
+MODE=defect npm run test:playthrough                # defection: dead pool by ~year 4
 ```
-Δreservoir ≈ 12.5 − 17.2 − 1.0 = −3.7 MAF/year
-```
-→ Starting at 26 MAF, dead pool in ~6 years without cooperation.
 
-If all players cut 30%:
-```
-Δreservoir ≈ 12.5 − 12.0 − 1.0 = +0.5 MAF/year
-```
-→ Stable. Coordination makes the system viable.
-
-### Climate drift
-Each year applies −0.1 MAF cumulative flow reduction (representing aridification trends). By Year 10, effective flow is ~1 MAF lower than the card face value.
-
-### Evaporation
-Approximately 4% of current reservoir level per year (min 0.3 MAF).
-
----
-
-## Design Notes
-
-### Why stag hunt (not prisoner's dilemma)?
-
-In a prisoner's dilemma, defection is dominant regardless of what others do. In a stag hunt, cooperation is better if and only if you believe others will also cooperate. The Colorado River is a stag hunt: the coordination bonus flips the calculus when trust is established. Without trust, individual defection is rational even though collective defection is catastrophic.
-
-### Why 10 turns?
-
-Ten turns provides enough time for:
-- Early game: learning the mechanics and establishing cooperation norms
-- Mid game: testing whether initial agreements hold under pressure
-- Late game: crisis dynamics if cooperation has failed, or consolidation if it held
-
-Ten turns at 10 minutes each = 100 minutes within the 2-hour target.
-
-### Why hot-seat (single device)?
-
-Asymmetric information is the point. Each player has private objectives and private commitments. A single device enforces the informational structure without requiring a backend or networking. The pass-device ritual also slows the game to a human pace and creates a moment of privacy that mirrors real water negotiations.
-
-### Role design
-
-Every role is designed to be played sympathetically. California is not the villain; it has real constituents who depend on IID. The Tribal Coalition is not a spoiler; it has the most legally defensible position and the least historical power. The Bureau is not a neutral arbiter; its funding leverage shapes outcomes.
+Observed behavior: full cooperation at tier targets survives all 10 years; aggressive overdraw by the states reaches dead pool in year 4. The stag hunt gap is real.
 
 ---
 
 ## Tuning Guide
 
-All balance-critical numbers are marked `// TUNING:` in the source. Key files:
+All balance numbers are marked `// TUNING:` in source:
 
-### `src/data/roles.ts`
-- `baseDiversion`: what players normally draw. Higher values → more structural deficit → faster crisis.
-- `maxDiversion`: legal ceiling. Tribal maxDiversion is deliberately higher than base to represent unquantified rights.
-- `startingBudget`, `startingPoliticalCapital`: resource abundance affects willingness to invest in alternatives.
+- `src/data/roles.ts` — baseline/max diversions, budgets, political capital
+- `src/data/hydrology.ts` — 30-card flow deck, draw weights (post-2000 dry years weighted up)
+- `src/data/alternatives.ts` — investment costs, lead times, effects, lease revenue
+- `src/data/objectives.ts` — private objective points, `COORDINATION_BONUS`
+- `src/store/gameStore.ts` — reservoir geometry, evaporation, climate drift, tier cuts, defection economics, phase timers
 
-### `src/data/hydrology.ts`
-- `naturalFlow`: per-card flow in MAF. Calibrated to USBR historical data.
-- `weight`: draw probability. Increase post-2000 dry card weights to intensify climate pressure.
-
-### `src/data/alternatives.ts`
-- `cost`: higher cost → investment requires Bureau co-funding → Bureau has more leverage.
-- `leadTurns`: longer lead times mean investments only pay off with sustained cooperation.
-- `effectMagnitude`: larger effects make cooperation more valuable vs. defection.
-
-### `src/data/objectives.ts`
-- `COORDINATION_BONUS` (60 pts): must exceed the gain from defecting in every year. If playtests show pure defection still wins, increase this.
-- Per-criterion `maxPoints`: calibrate so private objectives reward role-appropriate behavior without dominating total score.
-
-### `src/store/gameStore.ts`
-- `RESERVOIR_START` (26 MAF): lower start → earlier crisis → less time to establish cooperation.
-- `EVAPORATION_RATE` (4%): higher rate → faster drawdown.
-- `CLIMATE_DRIFT_PER_YEAR` (−0.1 MAF): increase to stress-test cooperation under worsening conditions.
-- `getTierCuts()`: the mandatory cuts by tier. Real USBR Shortage Guidelines calibrate roughly to these numbers.
-
-### Playtest targets
-- Pure defection (everyone overdraw every year) → dead pool by Year 5–6.
-- Full cooperation (everyone cuts 30%) → reservoir stable, coordination bonus earned.
-- Mixed strategies → dead pool risk forces mid-game coalition.
-
----
+Playtest targets:
+- Pure defection → dead pool by year 4–6
+- Full cooperation → stable reservoir + coordination bonus
+- Mixed play → mid-game crisis forcing a coalition
 
 ## File Structure
 
 ```
-src/
-  data/
-    types.ts          — all TypeScript interfaces
-    roles.ts          — 6 player roles with powers, constraints, resources
-    hydrology.ts      — 30-card hydrology deck (calibrated to USBR data)
-    alternatives.ts   — 5 alternative investment types
-    objectives.ts     — 6 private objective cards
-  store/
-    gameStore.ts      — Zustand store with all game logic and reducers
-  components/
-    Dashboard.tsx     — always-visible shared info panel
-    ReservoirChart.tsx — Recharts reservoir + shortage tier lines
-    GameLog.tsx       — chronological event log
-    Timer.tsx         — countdown display
-    TutorialOverlay.tsx — first-turn tutorial (5 steps)
-    SetupScreen.tsx   — role reading + game start
-    GameOverScreen.tsx — final scores + pedagogical takeaways
-    phases/
-      PhaseHydrology.tsx   — card draw + flow analysis
-      PhaseFederal.tsx     — Bureau tier declaration + funding
-      PhaseNegotiation.tsx — agreement logging
-      PhaseCommitment.tsx  — sequential private input (6 players)
-      PhaseResolution.tsx  — reveal + projected reservoir update
+kyles-card-game/
+  public/            _redirects, _headers, favicon (Cloudflare-ready)
+  scripts/
+    playthrough.mjs  headless full-game smoke test
+  src/
+    data/            roles, hydrology deck, alternatives, objectives (all tunable)
+    store/
+      gameStore.ts   entire game engine: phases, resolution, scoring
+    components/
+      phases/        one component per phase
+      ...            dashboard, chart, log, setup, game-over, tutorial
+  wrangler.toml      Cloudflare Pages config
+  .node-version      Node 20 for CF build workers
 ```
-
----
-
-## Legal Layer Reference
-
-The game encodes these legal frameworks as rule constraints:
-
-| Framework | Effect in Game |
-|-----------|----------------|
-| 1922 Compact | Baseline allocations; Upper Basin delivery obligation |
-| 1944 Mexico Treaty | Mexico's 1.5 MAF treaty ceiling |
-| 1963 AZ v. California | California's senior 4.4 MAF; AZ's 2.8 MAF |
-| 1968 Basin Project Act | CAP authorization; AZ junior in shortage |
-| Minute 323 (2017) | Mexico shares cuts at shortage tiers |
-| Winters Doctrine | Tribal max diversion (3.5 MAF) represents unquantified senior rights |
-| Shortage Guidelines | Tier cut amounts in `getTierCuts()` |
-
----
 
 ## Pedagogical Goals
 
 Players should leave understanding:
-1. **Why the 1922 Compact is the structural root** — the overallocation was baked in from day one.
-2. **How federal funding shapes state behavior** — the Bureau's pot is a carrot for cooperation.
-3. **Why tribal rights are pivotal** — senior legal rights, historically marginalized.
-4. **How hydrological variance interacts with rigid law** — the compact assumes predictability; the river doesn't comply.
-5. **Why coordination is hard** — everyone can see the math; politics makes it hard anyway.
+1. Why the 1922 Compact's overallocation is the structural root of the problem
+2. How federal funding leverage shapes state behavior
+3. Why tribal water rights are pivotal and historically marginalized
+4. How hydrological variance interacts with rigid legal frameworks
+5. Why coordination is hard even when everyone agrees on the math
